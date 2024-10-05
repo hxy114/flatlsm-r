@@ -1054,7 +1054,7 @@ class Version {
   friend class VersionSet;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
-
+  friend class DBImpl;
   const InternalKeyComparator* internal_comparator() const {
     return storage_info_.internal_comparator_;
   }
@@ -1474,7 +1474,13 @@ class VersionSet {
       const std::optional<const Slice>& start,
       const std::optional<const Slice>& end);
 
-  // Add all files listed in any live version to *live_table_files and
+  InternalIterator* MakeInputIteratorL0(
+      const ReadOptions& read_options, const CompactionL0* c,
+      RangeDelAggregator* range_del_agg,
+      const FileOptions& file_options_compactions,
+      [[maybe_unused]] const std::optional<const Slice>& start,
+      [[maybe_unused]]const std::optional<const Slice>& end, [[maybe_unused]]Arena *arena);
+      // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;

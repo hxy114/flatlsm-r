@@ -598,6 +598,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kDBLockFile:
       case kIdentityFile:
       case kMetaDatabase:
+      case kMyLogFile:
         keep = true;
         break;
     }

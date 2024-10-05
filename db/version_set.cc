@@ -7154,6 +7154,64 @@ InternalIterator* VersionSet::MakeInputIterator(
   return result;
 }
 
+
+InternalIterator* VersionSet::MakeInputIteratorL0(
+    const ReadOptions& read_options, const CompactionL0* c,
+    RangeDelAggregator* range_del_agg,
+    const FileOptions& file_options_compactions,
+    [[maybe_unused]] const std::optional<const Slice>& start,
+    [[maybe_unused]]const std::optional<const Slice>& end, [[maybe_unused]]Arena *arena) {
+  auto cfd = c->column_family_data();
+  // Level-0 files have to be merged together.  For other levels,
+  // we will make a concatenating iterator per level.
+  // TODO(opt): use concatenating iterator for level-0 if there is no overlap
+  const size_t space = c->memtable_size() + c->num_input_levels() -1;
+  /*const size_t space = (c->level() == 0 ? c->input_levels(0)->num_files +
+                                          c->num_input_levels() - 1
+                                        : c->num_input_levels());*/
+  InternalIterator** list = new InternalIterator*[space];
+  // First item in the pair is a pointer to range tombstones.
+  // Second item is a pointer to a member of a LevelIterator,
+  // that will be initialized to where CompactionMergingIterator stores
+  // pointer to its range tombstones. This is used by LevelIterator
+  // to update pointer to range tombstones as it traverse different SST files.
+  std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
+                        std::unique_ptr<TruncatedRangeDelIterator>**>>
+      range_tombstones;
+  size_t num = 0;
+  MemTable * m=c->input_memtable();
+
+    /*std::unique_ptr<TruncatedRangeDelIterator> range_tombstone_iter =
+        nullptr;*/
+    list[num++] =m->NewIterator(read_options, /*seqno_to_time_mapping=*/nullptr);
+    range_tombstones.emplace_back(nullptr,
+                                  nullptr);
+
+
+  if (c->num_input_files(1)> 0) {
+    std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr =
+        nullptr;
+    list[num++] = new LevelIterator(
+        cfd->table_cache(), read_options, file_options_compactions,
+        cfd->internal_comparator(), c->input_levels(1),
+        c->mutable_cf_options()->prefix_extractor,
+        /*should_sample=*/false,
+        /*no per level latency histogram=*/nullptr,
+        TableReaderCaller::kCompaction, /*skip_filters=*/false,
+        /*level=*/static_cast<int>(c->level(1)),
+        c->mutable_cf_options()->block_protection_bytes_per_key,
+        range_del_agg, c->boundaries(1), false, &tombstone_iter_ptr);
+    range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
+  }
+  assert(num <= space);
+  InternalIterator* result = NewCompactionMergingIterator(
+      &c->column_family_data()->internal_comparator(), list,
+      static_cast<int>(num), range_tombstones);
+  delete[] list;
+  return result;
+}
+
+
 Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
                                       FileMetaData** meta,
                                       ColumnFamilyData** cfd) {
@@ -7308,8 +7366,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client
-  new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
-                             LastSequence());
+  /*new_cfd->CreateNewMemtable(*new_cfd->GetLatestMutableCFOptions(),
+                             LastSequence());*/
   new_cfd->SetLogNumber(edit->GetLogNumber());
   return new_cfd;
 }

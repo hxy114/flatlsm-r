@@ -52,7 +52,7 @@ class MergeIteratorBuilder {
   // arena: where the merging iterator needs to be allocated from.
   explicit MergeIteratorBuilder(const InternalKeyComparator* comparator,
                                 Arena* arena, bool prefix_seek_mode = false,
-                                const Slice* iterate_upper_bound = nullptr);
+                                const Slice* iterate_upper_bound = nullptr, ColumnFamilyData *cfd = nullptr);
   ~MergeIteratorBuilder();
 
   // Add point key iterator `iter` to the merging iterator.

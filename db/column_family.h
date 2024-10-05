@@ -29,6 +29,7 @@
 #include "util/cast_util.h"
 #include "util/hash_containers.h"
 #include "util/thread_local.h"
+#include "vlog_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -39,6 +40,7 @@ class MemTable;
 class MemTableListVersion;
 class CompactionPicker;
 class Compaction;
+class CompactionL0;
 class InternalKey;
 class InternalStats;
 class ColumnFamilyData;
@@ -373,6 +375,7 @@ class ColumnFamilyData {
 
   MemTableList* imm() { return &imm_; }
   MemTable* mem() { return mem_; }
+  std::list<MemTable*>* mem_list() {return &mem_list_;}
 
   bool IsEmpty() {
     return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
@@ -397,8 +400,12 @@ class ColumnFamilyData {
   // See Memtable constructor for explanation of earliest_seq param.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
                                  SequenceNumber earliest_seq);
+  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
+                                 SequenceNumber earliest_seq,PmLogHead *pmLogHead);
   void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
                          SequenceNumber earliest_seq);
+  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
+                         SequenceNumber earliest_seq, PmLogHead *pmLogHead);
 
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobSource* blob_source() const { return blob_source_.get(); }
@@ -410,6 +417,9 @@ class ColumnFamilyData {
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
                              const MutableDBOptions& mutable_db_options,
                              LogBuffer* log_buffer);
+  CompactionL0* PickCompactionL0(const MutableCFOptions& mutable_options,
+                                 const MutableDBOptions& mutable_db_options,
+                                 LogBuffer* log_buffer);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -444,6 +454,7 @@ class ColumnFamilyData {
                            const std::string& trim_ts);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
+  CompactionPicker* compactionl0_picker() { return compaction_picker_l0_.get(); }
   // thread-safe
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
@@ -575,9 +586,10 @@ class ColumnFamilyData {
   int GetUnflushedMemTableCountForWriteStallCheck() const {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
-
+  size_t GetQueueSize();
  private:
   friend class ColumnFamilySet;
+  friend class DBImpl;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
@@ -627,6 +639,7 @@ class ColumnFamilyData {
   WriteBufferManager* write_buffer_manager_;
 
   MemTable* mem_;
+  std::list<MemTable*> mem_list_;
   MemTableList imm_;
   SuperVersion* super_version_;
 
@@ -652,7 +665,8 @@ class ColumnFamilyData {
 
   // An object that keeps all the compaction stats
   // and picks the next compaction
-  std::unique_ptr<CompactionPicker> compaction_picker_;
+  std::unique_ptr<CompactionPicker> compaction_picker_;//用来找出压缩的东西
+  std::unique_ptr<CompactionPicker> compaction_picker_l0_;//用来找出压缩的东西
 
   ColumnFamilySet* column_family_set_;
 
@@ -665,6 +679,9 @@ class ColumnFamilyData {
   // DBImpl::compaction_queue_
   bool queued_for_compaction_;
 
+ public:
+  vlog::VlogManager vlog_manager_;
+ private:
   uint64_t prev_compaction_needed_bytes_;
 
   // if the database was opened with 2pc enabled

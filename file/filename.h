@@ -40,6 +40,7 @@ constexpr char kFilePathSeparator = '/';
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with
 // "dbname".
+std::string MyLogFileName(const std::string& dbname, uint64_t number);
 std::string LogFileName(const std::string& dbname, uint64_t number);
 
 std::string LogFileName(uint64_t number);
@@ -74,7 +75,8 @@ uint64_t TableFileNameToNumber(const std::string& name);
 // "dbname".
 std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
                           uint32_t path_id);
-
+std::string MyLogFileName(const std::vector<DbPath>& db_paths, uint64_t number,
+                          uint32_t path_id);
 // Sufficient buffer size for FormatFileNumber.
 const size_t kFormatFileNumberBufSize = 38;
 

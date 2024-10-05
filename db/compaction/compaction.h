@@ -573,6 +573,533 @@ class Compaction {
       PenultimateOutputRangeType::kNotSupported;
 };
 
+
+// A Compaction encapsulates metadata about a compaction.
+class CompactionL0 {
+ public:
+  /*CompactionL0(VersionStorageInfo* input_version,
+             const ImmutableOptions& immutable_options,
+             const MutableCFOptions& mutable_cf_options,
+             const MutableDBOptions& mutable_db_options,
+             std::vector<CompactionInputFiles> inputs, int output_level,
+             uint64_t target_file_size, uint64_t max_compaction_bytes,
+             uint32_t output_path_id, CompressionType compression,
+             CompressionOptions compression_opts,
+             Temperature output_temperature, uint32_t max_subcompactions,
+             std::vector<FileMetaData*> grandparents,
+             bool manual_compaction = false, const std::string& trim_ts = "",
+             double score = -1, bool deletion_compaction = false,
+             bool l0_files_might_overlap = true,
+             CompactionReason compaction_reason = CompactionReason::kUnknown,
+             BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+             BlobGarbageCollectionPolicy::kUseDefault,
+             double blob_garbage_collection_age_cutoff = -1);*/
+
+  CompactionL0(VersionStorageInfo* input_version,
+               const ImmutableOptions& immutable_options,
+               const MutableCFOptions& mutable_cf_options,
+               const MutableDBOptions& mutable_db_options,
+               MemTable *input_memtable, size_t input_memtable_size,
+               std::string& start_key, std::string& end_key,
+               std::vector<CompactionInputFiles> inputs, int output_level,
+               uint64_t target_file_size, uint64_t max_compaction_bytes,
+               uint32_t output_path_id, CompressionType compression,
+               CompressionOptions compression_opts,
+               Temperature output_temperature, uint32_t max_subcompactions,
+               std::vector<FileMetaData*> grandparents,
+               bool manual_compaction = false, const std::string& trim_ts = "",
+               double score = -1, bool deletion_compaction = false,
+               bool l0_files_might_overlap = true,
+               CompactionReason compaction_reason = CompactionReason::kUnknown,
+               BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+                   BlobGarbageCollectionPolicy::kUseDefault,
+               double blob_garbage_collection_age_cutoff = -1);
+
+  // The type of the penultimate level output range
+  enum class PenultimateOutputRangeType : int {
+    kNotSupported,  // it cannot output to the penultimate level
+    kFullRange,     // any data could be output to the penultimate level
+    kNonLastRange,  // only the keys within non_last_level compaction inputs can
+    // be outputted to the penultimate level
+    kDisabled,      // no data can be outputted to the penultimate level
+  };
+
+  // No copying allowed
+  CompactionL0(const CompactionL0&) = delete;
+  void operator=(const CompactionL0&) = delete;
+
+  ~CompactionL0();
+
+  // Returns the level associated to the specified compaction input level.
+  // If compaction_input_level is not specified, then input_level is set to 0.
+  int level(size_t compaction_input_level = 0) const {
+    if (compaction_input_level == 0) {
+      return start_level_;
+    }
+    return inputs_[compaction_input_level -1].level;
+  }
+
+  int start_level() const { return start_level_; }
+
+  // Outputs will go to this level
+  int output_level() const { return output_level_; }
+
+  // Returns the number of input levels in this compaction.
+  size_t num_input_levels() const { return inputs_.size() + 1; }
+  size_t memtable_size() const {return input_memtables_size_; }
+  MemTable * input_memtable() const { return input_memtables_; }
+  // Return the object that holds the edits to the descriptor done
+  // by this compaction.
+  VersionEdit* edit() { return &edit_; }
+
+  // Returns the number of input files associated to the specified
+  // compaction input level.
+  // The function will return 0 if when "compaction_input_level" < 0
+  // or "compaction_input_level" >= "num_input_levels()".
+  size_t num_input_files(size_t compaction_input_level) const {
+    if (compaction_input_level == 0 ) {
+      return input_memtables_size_;
+    }
+    if (compaction_input_level <= inputs_.size()) {
+      return inputs_[compaction_input_level - 1].size();
+    }
+    return 0;
+  }
+
+  // Returns input version of the compaction
+  Version* input_version() const { return input_version_; }
+
+  // Returns the ColumnFamilyData associated with the compaction.
+  ColumnFamilyData* column_family_data() const { return cfd_; }
+
+  // Returns the file meta data of the 'i'th input file at the
+  // specified compaction input level.
+  // REQUIREMENT: "compaction_input_level" must be >= 0 and
+  //              < "input_levels()"
+  FileMetaData* input(size_t compaction_input_level, size_t i) const {
+    assert(compaction_input_level <= inputs_.size());
+    return inputs_[compaction_input_level - 1][i];
+  }
+
+  const std::vector<AtomicCompactionUnitBoundary>* boundaries(
+      size_t compaction_input_level) const {
+    assert(compaction_input_level <= inputs_.size());
+    return &inputs_[compaction_input_level - 1].atomic_compaction_unit_boundaries;
+  }
+
+  // Returns the list of file meta data of the specified compaction
+  // input level.
+  // REQUIREMENT: "compaction_input_level" must be >= 0 and
+  //              < "input_levels()"
+  const std::vector<FileMetaData*>* inputs(
+      size_t compaction_input_level) const {
+    assert(compaction_input_level <= inputs_.size());
+    return &inputs_[compaction_input_level-1].files;
+  }
+
+  const std::vector<CompactionInputFiles>* inputs() { return &inputs_; }
+
+  // Returns the LevelFilesBrief of the specified compaction input level.
+  const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
+    return &input_levels_[compaction_input_level - 1];
+  }
+
+  // Maximum size of files to build during this compaction.
+  uint64_t max_output_file_size() const { return max_output_file_size_; }
+
+  // Target output file size for this compaction
+  uint64_t target_output_file_size() const { return target_output_file_size_; }
+
+  // What compression for output
+  CompressionType output_compression() const { return output_compression_; }
+
+  // What compression options for output
+  const CompressionOptions& output_compression_opts() const {
+    return output_compression_opts_;
+  }
+
+  // Whether need to write output file to second DB path.
+  uint32_t output_path_id() const { return output_path_id_; }
+
+  // Is this a trivial compaction that can be implemented by just
+  // moving a single input file to the next level (no merging or splitting)
+  bool IsTrivialMove() const;
+
+  // The split user key in the output level if this compaction is required to
+  // split the output files according to the existing cursor in the output
+  // level under round-robin compaction policy. Empty indicates no required
+  // splitting key
+  const InternalKey* GetOutputSplitKey() const { return output_split_key_; }
+
+  // If true, then the compaction can be done by simply deleting input files.
+  bool deletion_compaction() const { return deletion_compaction_; }
+
+  // Add all inputs to this compaction as delete operations to *edit.
+  void AddInputDeletions(VersionEdit* edit);
+
+  // Returns true if the available information we have guarantees that
+  // the input "user_key" does not exist in any level beyond `output_level()`.
+  bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
+                                     std::vector<size_t>* level_ptrs) const;
+
+  // Returns true if the user key range [begin_key, end_key) does not exist
+  // in any level beyond `output_level()`.
+  // Used for checking range tombstones, so we assume begin_key < end_key.
+  // begin_key and end_key should include timestamp if enabled.
+  bool KeyRangeNotExistsBeyondOutputLevel(
+      const Slice& begin_key, const Slice& end_key,
+      std::vector<size_t>* level_ptrs) const;
+
+  // Clear all files to indicate that they are not being compacted
+  // Delete this compaction from the list of running compactions.
+  //
+  // Requirement: DB mutex held
+  void ReleaseCompactionFiles(Status status);
+  // Returns the summary of the compaction in "output" with maximum "len"
+  // in bytes.  The caller is responsible for the memory management of
+  // "output".
+  void Summary(char* output, int len);
+
+  // Return the score that was used to pick this compaction run.
+  double score() const { return score_; }
+
+  // Is this compaction creating a file in the bottom most level?
+  bool bottommost_level() const { return bottommost_level_; }
+
+  // Is the compaction compact to the last level
+  bool is_last_level() const {
+    return output_level_ == immutable_options_.num_levels - 1;
+  }
+
+  // Does this compaction include all sst files?
+  bool is_full_compaction() const { return is_full_compaction_; }
+
+  // Was this compaction triggered manually by the client?
+  bool is_manual_compaction() const { return is_manual_compaction_; }
+
+  std::string trim_ts() const { return trim_ts_; }
+
+  // Used when allow_trivial_move option is set in
+  // Universal compaction. If all the input files are
+  // non overlapping, then is_trivial_move_ variable
+  // will be set true, else false
+  void set_is_trivial_move(bool trivial_move) {
+    is_trivial_move_ = trivial_move;
+  }
+
+  // Used when allow_trivial_move option is set in
+  // Universal compaction. Returns true, if the input files
+  // are non-overlapping and can be trivially moved.
+  bool is_trivial_move() const { return is_trivial_move_; }
+
+  // How many total levels are there?
+  int number_levels() const { return number_levels_; }
+
+  // Return the ImmutableOptions that should be used throughout the compaction
+  // procedure
+  const ImmutableOptions* immutable_options() const {
+    return &immutable_options_;
+  }
+
+  // Return the MutableCFOptions that should be used throughout the compaction
+  // procedure
+  const MutableCFOptions* mutable_cf_options() const {
+    return &mutable_cf_options_;
+  }
+
+  // Returns the size in bytes that the output file should be preallocated to.
+  // In level compaction, that is max_file_size_. In universal compaction, that
+  // is the sum of all input file sizes.
+  uint64_t OutputFilePreallocationSize() const;
+
+  void FinalizeInputInfo(Version* input_version);
+
+  struct InputLevelSummaryBuffer {
+    char buffer[128];
+  };
+
+  const char* InputLevelSummary(InputLevelSummaryBuffer* scratch) const;
+
+  uint64_t CalculateTotalInputSize() const;
+
+  // In case of compaction error, reset the nextIndex that is used
+  // to pick up the next file to be compacted from files_by_size_
+  void ResetNextCompactionIndex();
+
+  // Create a CompactionFilter from compaction_filter_factory
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
+
+  // Create a SstPartitioner from sst_partitioner_factory
+  std::unique_ptr<SstPartitioner> CreateSstPartitioner() const;
+
+  // Is the input level corresponding to output_level_ empty?
+  bool IsOutputLevelEmpty() const;
+
+  // Should this compaction be broken up into smaller ones run in parallel?
+  bool ShouldFormSubcompactions() const;
+
+  // Returns true iff at least one input file references a blob file.
+  //
+  // PRE: input version has been set.
+  bool DoesInputReferenceBlobFiles() const;
+
+  // test function to validate the functionality of IsBottommostLevel()
+  // function -- determines if compaction with inputs and storage is bottommost
+  static bool TEST_IsBottommostLevel(
+      int output_level, VersionStorageInfo* vstorage,
+      const std::vector<CompactionInputFiles>& inputs);
+
+  // TODO(hx235): eventually we should consider `InitInputTableProperties()`'s
+  // status and fail the compaction if needed
+  //
+  // May open and read table files for table property.
+  // Should not be called while holding mutex_.
+  const TablePropertiesCollection& GetOrInitInputTableProperties() {
+    InitInputTableProperties().PermitUncheckedError();
+    return input_table_properties_;
+  }
+
+  const TablePropertiesCollection& GetInputTableProperties() const {
+    return input_table_properties_;
+  }
+
+  // TODO(hx235): consider making this function symmetric to
+  // InitInputTableProperties()
+  void SetOutputTableProperties(
+      const std::string& file_name,
+      const std::shared_ptr<const TableProperties>& tp) {
+    output_table_properties_[file_name] = tp;
+  }
+
+  const TablePropertiesCollection& GetOutputTableProperties() const {
+    return output_table_properties_;
+  }
+
+  Slice GetSmallestUserKey() const { return smallest_user_key_; }
+
+  Slice GetLargestUserKey() const { return largest_user_key_; }
+
+  PenultimateOutputRangeType GetPenultimateOutputRangeType() const {
+    return penultimate_output_range_type_;
+  }
+
+  // Return true if the compaction supports per_key_placement
+  bool SupportsPerKeyPlacement() const;
+
+  // Get per_key_placement penultimate output level, which is `last_level - 1`
+  // if per_key_placement feature is supported. Otherwise, return -1.
+  int GetPenultimateLevel() const;
+
+  // Return true if the given range is overlap with penultimate level output
+  // range.
+  // Both smallest_key and largest_key include timestamps if user-defined
+  // timestamp is enabled.
+  bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
+                                          const Slice& largest_key) const;
+
+  // Return true if the key is within penultimate level output range for
+  // per_key_placement feature, which is safe to place the key to the
+  // penultimate level. different compaction strategy has different rules.
+  // If per_key_placement is not supported, always return false.
+  //  key includes timestamp if user-defined timestamp is enabled.
+  bool WithinPenultimateLevelOutputRange(const ParsedInternalKey& ikey) const;
+
+  CompactionReason compaction_reason() const { return compaction_reason_; }
+
+  const std::vector<FileMetaData*>& grandparents() const {
+    return grandparents_;
+  }
+
+  uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
+
+  Temperature output_temperature() const { return output_temperature_; }
+
+  uint32_t max_subcompactions() const { return max_subcompactions_; }
+
+  bool enable_blob_garbage_collection() const {
+    return enable_blob_garbage_collection_;
+  }
+
+  double blob_garbage_collection_age_cutoff() const {
+    return blob_garbage_collection_age_cutoff_;
+  }
+
+  // start and end are sub compact range. Null if no boundary.
+  // This is used to filter out some input files' ancester's time range.
+  uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
+                                          const InternalKey* end) const;
+  // Return the minimum epoch number among
+  // input files' associated with this compaction
+  uint64_t MinInputFileEpochNumber() const;
+
+  // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
+  // compaction begin and compaction completion callbacks match.
+  void SetNotifyOnCompactionCompleted() {
+    notify_on_compaction_completion_ = true;
+  }
+
+  bool ShouldNotifyOnCompactionCompleted() const {
+    return notify_on_compaction_completion_;
+  }
+
+  static constexpr int kInvalidLevel = -1;
+
+  // Evaluate penultimate output level. If the compaction supports
+  // per_key_placement feature, it returns the penultimate level number.
+  // Otherwise, it's set to kInvalidLevel (-1), which means
+  // output_to_penultimate_level is not supported.
+  // Note: even the penultimate level output is supported (PenultimateLevel !=
+  // kInvalidLevel), some key range maybe unsafe to be outputted to the
+  // penultimate level. The safe key range is populated by
+  // `PopulatePenultimateLevelOutputRange()`.
+  // Which could potentially disable all penultimate level output.
+  static int EvaluatePenultimateLevel(const VersionStorageInfo* vstorage,
+                                      const ImmutableOptions& immutable_options,
+                                      const int start_level,
+                                      const int output_level);
+
+ private:
+
+  Status InitInputTableProperties();
+
+  // mark (or clear) all files that are being compacted
+  void MarkFilesBeingCompacted(bool mark_as_compacted);
+
+  // get the smallest and largest key present in files to be compacted
+  static void GetBoundaryKeys(VersionStorageInfo* vstorage,
+                              const std::vector<CompactionInputFiles>& inputs,
+                              Slice* smallest_key, Slice* largest_key,
+                              int exclude_level = -1);
+
+  // get the smallest and largest internal key present in files to be compacted
+  static void GetBoundaryInternalKeys(
+      VersionStorageInfo* vstorage,
+      const std::vector<CompactionInputFiles>& inputs,
+      InternalKey* smallest_key, InternalKey* largest_key,
+      int exclude_level = -1);
+
+  // populate penultimate level output range, which will be used to determine if
+  // a key is safe to output to the penultimate level (details see
+  // `Compaction::WithinPenultimateLevelOutputRange()`.
+  void PopulatePenultimateLevelOutputRange();
+
+  // Get the atomic file boundaries for all files in the compaction. Necessary
+  // in order to avoid the scenario described in
+  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and
+  // plumb down appropriate key boundaries to RangeDelAggregator during
+  // compaction.
+  static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(
+      VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs);
+
+  // helper function to determine if compaction with inputs and storage is
+  // bottommost
+  static bool IsBottommostLevel(
+      int output_level, VersionStorageInfo* vstorage,
+      const std::vector<CompactionInputFiles>& inputs);
+
+  static bool IsFullCompaction(VersionStorageInfo* vstorage,
+                               const std::vector<CompactionInputFiles>& inputs);
+
+  VersionStorageInfo* input_vstorage_;
+
+  const int start_level_;   // the lowest level to be compacted
+  const int output_level_;  // levels to which output files are stored
+  uint64_t target_output_file_size_;
+  uint64_t max_output_file_size_;
+  uint64_t max_compaction_bytes_;
+  uint32_t max_subcompactions_;
+  const ImmutableOptions immutable_options_;
+  const MutableCFOptions mutable_cf_options_;
+  Version* input_version_;
+  VersionEdit edit_;
+  const int number_levels_;
+  ColumnFamilyData* cfd_;
+  Arena arena_;  // Arena used to allocate space for file_levels_
+
+  const uint32_t output_path_id_;
+  CompressionType output_compression_;
+  CompressionOptions output_compression_opts_;
+  Temperature output_temperature_;
+  // If true, then the compaction can be done by simply deleting input files.
+  const bool deletion_compaction_;
+  // should it split the output file using the compact cursor?
+  const InternalKey* output_split_key_;
+
+  // L0 files in LSM-tree might be overlapping. But the compaction picking
+  // logic might pick a subset of the files that aren't overlapping. if
+  // that is the case, set the value to false. Otherwise, set it true.
+  bool l0_files_might_overlap_;
+
+  MemTable * input_memtables_;
+  size_t input_memtables_size_;
+  // Compaction input files organized by level. Constant after construction
+  const std::vector<CompactionInputFiles> inputs_;
+
+  // A copy of inputs_, organized more closely in memory
+  autovector<LevelFilesBrief, 2> input_levels_;
+
+  // State used to check for number of overlapping grandparent files
+  // (grandparent == "output_level_ + 1")
+  std::vector<FileMetaData*> grandparents_;
+  const double score_;  // score that was used to pick this compaction.
+
+  // Is this compaction creating a file in the bottom most level?
+  const bool bottommost_level_;
+  // Does this compaction include all sst files?
+  const bool is_full_compaction_;
+
+  // Is this compaction requested by the client?
+  const bool is_manual_compaction_;
+
+  // The data with timestamp > trim_ts_ will be removed
+  const std::string trim_ts_;
+
+  // True if we can do trivial move in Universal multi level
+  // compaction
+  bool is_trivial_move_;
+
+  // Does input compression match the output compression?
+  bool InputCompressionMatchesOutput() const;
+
+  TablePropertiesCollection input_table_properties_;
+  TablePropertiesCollection output_table_properties_;
+  std::string start_key_;
+  std::string end_key_;
+  // smallest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
+  Slice smallest_user_key_;
+
+  // largest user keys in compaction
+  // includes timestamp if user-defined timestamp is enabled.
+  Slice largest_user_key_;
+
+  // Reason for compaction
+  CompactionReason compaction_reason_;
+
+  // Notify on compaction completion only if listener was notified on compaction
+  // begin.
+  bool notify_on_compaction_completion_;
+
+  // Enable/disable GC collection for blobs during compaction.
+  bool enable_blob_garbage_collection_;
+
+  // Blob garbage collection age cutoff.
+  double blob_garbage_collection_age_cutoff_;
+
+  // only set when per_key_placement feature is enabled, -1 (kInvalidLevel)
+  // means not supported.
+  const int penultimate_level_;
+
+  // Key range for penultimate level output
+  // includes timestamp if user-defined timestamp is enabled.
+  // penultimate_output_range_type_ shows the range type
+  InternalKey penultimate_level_smallest_;
+  InternalKey penultimate_level_largest_;
+  PenultimateOutputRangeType penultimate_output_range_type_ =
+      PenultimateOutputRangeType::kNotSupported;
+};
+
+
 #ifndef NDEBUG
 // Helper struct only for tests, which contains the data to decide if a key
 // should be output to the penultimate level.

@@ -89,6 +89,7 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
+    kChangeNvm = 16,
     kMaxCode
   };
 
@@ -316,6 +317,7 @@ class Status {
     return Status(kInvalidArgument, kTxnNotPrepared, msg, msg2);
   }
 
+  static Status NoNVMSpace() { return Status(kChangeNvm);}
   // Returns true iff the status indicates success.
   bool ok() const {
     MarkChecked();
@@ -484,6 +486,10 @@ class Status {
     return (code() == kIOError) && (subcode() == kIOFenced);
   }
 
+  bool IsNvmNoSpace() const {
+    MarkChecked();
+    return code() == kChangeNvm ;
+  }
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;

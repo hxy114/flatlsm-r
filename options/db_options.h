@@ -112,6 +112,7 @@ struct ImmutableDBOptions {
   SystemClock* clock;
   Statistics* stats;
   Logger* logger;
+  bool use_partition_;
   // End of convenience/helper objects.
 
   bool IsWalDirSameAsDBPath() const;

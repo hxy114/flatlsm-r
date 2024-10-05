@@ -529,7 +529,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     if (!two_write_queues_) {
-      if (status.ok() && !write_options.disableWAL) {
+      /*if (status.ok() && !write_options.disableWAL) {
         assert(log_context.log_file_number_size);
         LogFileNumberSize& log_file_number_size =
             *(log_context.log_file_number_size);
@@ -538,14 +538,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             WriteToWAL(write_group, log_context.writer, log_used,
                        log_context.need_log_sync, log_context.need_log_dir_sync,
                        last_sequence + 1, log_file_number_size);
-      }
+      }*/
     } else {
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
         // LastAllocatedSequence is increased inside WriteToWAL under
         // wal_write_mutex_ to ensure ordered events in WAL
-        io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
-                                    seq_inc);
+        /*io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
+                                    seq_inc);*/
+        last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
       } else {
         // Otherwise we inc seq number for memtable writes
         last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
@@ -556,7 +557,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
 
-    if (log_context.need_log_sync) {
+    /*if (log_context.need_log_sync) {
       VersionEdit synced_wals;
       log_write_mutex_.Lock();
       if (status.ok()) {
@@ -583,7 +584,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           status = SyncWAL();
         }
       }
-    }
+    }*/
 
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
@@ -703,7 +704,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   WriteBatch* my_batch, WriteCallback* callback,
                                   UserWriteCallback* user_write_cb,
-                                  uint64_t* log_used, uint64_t log_ref,
+                                  uint64_t* /*log_used*/, uint64_t log_ref,
                                   bool disable_memtable, uint64_t* seq_used) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
@@ -778,7 +779,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     IOStatus io_s;
     io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
 
-    if (w.status.ok() && !write_options.disableWAL) {
+    /*if (w.status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
       stats->AddDBStats(InternalStats::kIntStatsWriteDoneBySelf, 1);
       RecordTick(stats_, WRITE_DONE_BY_SELF, 1);
@@ -795,7 +796,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                      log_context.need_log_sync, log_context.need_log_dir_sync,
                      current_sequence, log_file_number_size);
       w.status = io_s;
-    }
+    }*/
 
     if (!io_s.ok()) {
       // Check WriteToWAL status
@@ -804,7 +805,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       WriteStatusCheck(w.status);
     }
 
-    VersionEdit synced_wals;
+    /*VersionEdit synced_wals;
     if (log_context.need_log_sync) {
       InstrumentedMutexLock l(&log_write_mutex_);
       if (w.status.ok()) {
@@ -819,7 +820,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       // TODO: plumb Env::IOActivity, Env::IOPriority
       const ReadOptions read_options;
       w.status = ApplyWALToManifest(read_options, write_options, &synced_wals);
-    }
+    }*/
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
@@ -1003,7 +1004,7 @@ Status DBImpl::WriteImplWALOnly(
   }
 
   WriteThread::WriteGroup write_group;
-  uint64_t last_sequence;
+  uint64_t last_sequence = 0;
   write_thread->EnterAsBatchGroupLeader(&w, &write_group);
   // Note: no need to update last_batch_group_size_ here since the batch writes
   // to WAL only
@@ -1205,11 +1206,45 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
     mutex_.Unlock();
   }
 }
+Status DBImpl::MakeRoomForWritePmtable(bool force) {
+  mutex_.AssertHeld();
+  //bool allow_delay = !force;
+  auto cfd = default_cf_handle_->cfd();
+  Status s;
+  while (true) {
+    if (!force &&
+               (cfd->mem_->ApproximateNvmMemoryUsage() +5 * 1024UL<= PM_LOG_SIZE)) {
+      // There is room in current memtable
+      break;
+    } /*else if (pm_list_.size()>=5 ) {
+      // We have filled up the current memtable, but the previous
+      // one is still being compacted, so we wait.
+      Log(options_.info_log, "Current memtable full; waiting...\n");
+      background_work_finished_signal_L0_.Wait();
+    }*/ else {
 
+
+      cfd->mem_list_.push_back(cfd->mem_);
+      cfd->mem_ = nullptr;
+      PmLogHead *pmLogHead= nullptr;
+      while((pmLogHead=nvmManager->get_pm_log())== nullptr){
+        ROCKS_LOG_INFO(immutable_db_options().logger,"no pm log");
+        background_work_finished_signal_L0_.Wait();
+      }
+      cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                             versions_->LastSequence(),pmLogHead);
+
+
+      force = false;  // Do not force another compaction if have room
+      MaybeScheduleFlushOrCompaction();
+    }
+  }
+  return s;
+}
 Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
-                               LogContext* log_context,
-                               WriteContext* write_context) {
-  assert(write_context != nullptr && log_context != nullptr);
+                               LogContext* /*log_context*/,
+                               WriteContext* /*write_context*/) {
+  //assert(write_context != nullptr && log_context != nullptr);
   Status status;
 
   if (error_handler_.IsDBStopped()) {
@@ -1218,8 +1253,12 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
+  {
+    InstrumentedMutexLock l(&mutex_);
+    MakeRoomForWritePmtable(false);
+  }
 
-  if (UNLIKELY(status.ok() && total_log_size_ > GetMaxTotalWalSize())) {
+  /*if (UNLIKELY(status.ok() && total_log_size_ > GetMaxTotalWalSize())) {
     assert(versions_);
     InstrumentedMutexLock l(&mutex_);
     const ColumnFamilySet* const column_families =
@@ -1231,9 +1270,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
       WaitForPendingWrites();
       status = SwitchWAL(write_context);
     }
-  }
+  }*/
 
-  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
+  /*if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
@@ -1242,9 +1281,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     InstrumentedMutexLock l(&mutex_);
     WaitForPendingWrites();
     status = HandleWriteBufferManagerFlush(write_context);
-  }
+  }*/
 
-  if (UNLIKELY(status.ok() && !trim_history_scheduler_.Empty())) {
+  /*if (UNLIKELY(status.ok() && !trim_history_scheduler_.Empty())) {
     InstrumentedMutexLock l(&mutex_);
     status = TrimMemtableHistory(write_context);
   }
@@ -1253,7 +1292,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     InstrumentedMutexLock l(&mutex_);
     WaitForPendingWrites();
     status = ScheduleFlushes(write_context);
-  }
+  }*/
 
   PERF_TIMER_STOP(write_scheduling_flushes_compactions_time);
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
@@ -1288,7 +1327,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
       WriteBufferManagerStallWrites();
     }
   }
-  InstrumentedMutexLock l(&log_write_mutex_);
+  /*InstrumentedMutexLock l(&log_write_mutex_);
   if (status.ok() && log_context->need_log_sync) {
     // Wait until the parallel syncs are finished. Any sync process has to sync
     // the front log too so it is enough to check the status of front()
@@ -1314,7 +1353,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   log_context->writer = logs_.back().writer;
   log_context->need_log_dir_sync =
       log_context->need_log_dir_sync && !log_dir_synced_;
-  log_context->log_file_number_size = std::addressof(alive_log_files_.back());
+  log_context->log_file_number_size = std::addressof(alive_log_files_.back());*/
 
   return status;
 }
@@ -1372,7 +1411,8 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             uint64_t* log_size,
                             LogFileNumberSize& log_file_number_size) {
   assert(log_size != nullptr);
-
+  IOStatus is;
+  return is;
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:log_entry", &log_entry);
   auto s = merged_batch.VerifyChecksum();
@@ -1417,6 +1457,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
                             SequenceNumber sequence,
                             LogFileNumberSize& log_file_number_size) {
   IOStatus io_s;
+  return io_s;
   assert(!two_write_queues_);
   assert(!write_group.leader->disable_wal);
   // Same holds for all in the batch group
@@ -1532,7 +1573,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
     const WriteThread::WriteGroup& write_group, uint64_t* log_used,
     SequenceNumber* last_sequence, size_t seq_inc) {
   IOStatus io_s;
-
+  return io_s;
   assert(two_write_queues_ || immutable_db_options_.unordered_write);
   assert(!write_group.leader->disable_wal);
   // Same holds for all in the batch group
@@ -2197,6 +2238,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: this thread is currently at the front of the 2nd writer queue if
 // two_write_queues_ is true (This is to simplify the reasoning.)
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
+  Status s;
+  return s;
   mutex_.AssertHeld();
   assert(lock_wal_count_ == 0);
 
@@ -2210,7 +2253,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
   // Recoverable state is persisted in WAL. After memtable switch, WAL might
   // be deleted, so we write the state to memtable to be persisted as well.
-  Status s = WriteRecoverableState();
+  s = WriteRecoverableState();
   if (!s.ok()) {
     return s;
   }

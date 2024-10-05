@@ -131,6 +131,9 @@ std::string Status::ToString() const {
     case kColumnFamilyDropped:
       type = "Column family dropped: ";
       break;
+    case kChangeNvm:
+      type = "NVM no capacity: ";
+      break;
     case kMaxCode:
       assert(false);
       break;

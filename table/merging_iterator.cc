@@ -54,7 +54,7 @@ class MergingIterator : public InternalIterator {
   MergingIterator(const InternalKeyComparator* comparator,
                   InternalIterator** children, int n, bool is_arena_mode,
                   bool prefix_seek_mode,
-                  const Slice* iterate_upper_bound = nullptr)
+                  const Slice* iterate_upper_bound = nullptr, ColumnFamilyData *cfd =nullptr)
       : is_arena_mode_(is_arena_mode),
         prefix_seek_mode_(prefix_seek_mode),
         direction_(kForward),
@@ -62,7 +62,8 @@ class MergingIterator : public InternalIterator {
         current_(nullptr),
         minHeap_(MinHeapItemComparator(comparator_)),
         pinned_iters_mgr_(nullptr),
-        iterate_upper_bound_(iterate_upper_bound) {
+        iterate_upper_bound_(iterate_upper_bound),
+        cfd_(cfd){
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].level = i;
@@ -436,7 +437,17 @@ class MergingIterator : public InternalIterator {
 
   Slice value() const override {
     assert(Valid());
-    return current_->value();
+    if (cfd_) {
+      //std::cout<<"1"<<std::endl;
+      if(current_->value().size() < 200){
+        cfd_->vlog_manager_.FetchValueFromVlog(current_->value(),&finish_key_);
+        return finish_key_;
+      }else{
+        return current_->value();
+      }
+    } else {
+      return current_->value();
+    }
   }
 
   bool PrepareValue() override {
@@ -659,7 +670,8 @@ class MergingIterator : public InternalIterator {
   // Used to bound range tombstones. For point keys, DBIter and SSTable iterator
   // take care of boundary checking.
   const Slice* iterate_upper_bound_;
-
+  ColumnFamilyData *cfd_;
+  mutable std::string finish_key_;
   // In forward direction, process a child that is not in the min heap.
   // If valid, add to the min heap. Otherwise, check status.
   void AddToMinHeapOrCheckStatus(HeapItem*);
@@ -1664,11 +1676,11 @@ InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
 
 MergeIteratorBuilder::MergeIteratorBuilder(
     const InternalKeyComparator* comparator, Arena* a, bool prefix_seek_mode,
-    const Slice* iterate_upper_bound)
+    const Slice* iterate_upper_bound, ColumnFamilyData *cfd)
     : first_iter(nullptr), use_merging_iter(false), arena(a) {
   auto mem = arena->AllocateAligned(sizeof(MergingIterator));
   merge_iter = new (mem) MergingIterator(comparator, nullptr, 0, true,
-                                         prefix_seek_mode, iterate_upper_bound);
+                                         prefix_seek_mode, iterate_upper_bound, cfd);
 }
 
 MergeIteratorBuilder::~MergeIteratorBuilder() {

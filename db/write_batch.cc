@@ -2214,7 +2214,11 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(ret_status.ok());
 
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* moptions = mem->GetImmutableMemTableOptions();
+    ret_status =
+        mem->Add(sequence_, value_type, key, value, kv_prot_info,
+                 concurrent_memtable_writes_, get_post_process_info(mem),
+                 hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
+    /*auto* moptions = mem->GetImmutableMemTableOptions();
     // inplace_update_support is inconsistent with snapshots, and therefore with
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
@@ -2269,7 +2273,7 @@ class MemTableInserter : public WriteBatch::Handler {
                                                        value, &merged_value);
           } else {
             update_status = moptions->inplace_callback(
-                nullptr /* existing_value */, nullptr /* existing_value_size */,
+                nullptr *//* existing_value *//*, nullptr *//* existing_value_size *//*,
                 value, &merged_value);
           }
           if (update_status == UpdateStatus::UPDATED_INPLACE) {
@@ -2285,7 +2289,7 @@ class MemTableInserter : public WriteBatch::Handler {
             } else {
               ret_status = mem->Add(sequence_, value_type, key,
                                     Slice(prev_buffer, prev_size),
-                                    nullptr /* kv_prot_info */);
+                                    nullptr *//* kv_prot_info *//*);
             }
             if (ret_status.ok()) {
               RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
@@ -2301,7 +2305,7 @@ class MemTableInserter : public WriteBatch::Handler {
               // merged_value contains the final value.
               ret_status =
                   mem->Add(sequence_, value_type, key, Slice(merged_value),
-                           nullptr /* kv_prot_info */);
+                           nullptr *//* kv_prot_info *//*);
             }
             if (ret_status.ok()) {
               RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
@@ -2309,14 +2313,14 @@ class MemTableInserter : public WriteBatch::Handler {
           }
         }
       }
-    }
+    }*/
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
       const bool kBatchBoundary = true;
       MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
       MaybeAdvanceSeq();
-      CheckMemtableFull();
+      //CheckMemtableFull();
     }
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add

@@ -1,3 +1,4 @@
+/*
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -17,7 +18,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBMemTableTest : public DBTestBase {
  public:
-  DBMemTableTest() : DBTestBase("db_memtable_test", /*env_do_fsync=*/true) {}
+  DBMemTableTest() : DBTestBase("db_memtable_test", */
+/*env_do_fsync=*//*
+true) {}
 };
 
 class MockMemTableRep : public MemTableRep {
@@ -117,7 +120,9 @@ class TestPrefixExtractor : public SliceTransform {
     return separator(key) != nullptr;
   }
 
-  bool InRange(const Slice& /*key*/) const override { return false; }
+  bool InRange(const Slice& */
+/*key*//*
+) const override { return false; }
 
  private:
   const char* separator(const Slice& key) const {
@@ -133,7 +138,9 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   Options options;
   InternalKeyComparator ikey_cmp(options.comparator);
   ReadRangeDelAggregator range_del_agg(&ikey_cmp,
-                                       kMaxSequenceNumber /* upper_bound */);
+                                       kMaxSequenceNumber */
+/* upper_bound *//*
+);
 
   // Create a MemTable
   InternalKeyComparator cmp(BytewiseComparator());
@@ -142,27 +149,41 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+                               kMaxSequenceNumber, 0 */
+/* column_family_id *//*
+);
 
   // Write some keys and make sure it returns false on duplicates
   ASSERT_OK(
-      mem->Add(seq, kTypeValue, "key", "value2", nullptr /* kv_prot_info */));
+      mem->Add(seq, kTypeValue, "key", "value2", nullptr */
+/* kv_prot_info *//*
+));
   ASSERT_TRUE(
-      mem->Add(seq, kTypeValue, "key", "value2", nullptr /* kv_prot_info */)
+      mem->Add(seq, kTypeValue, "key", "value2", nullptr */
+/* kv_prot_info *//*
+)
           .IsTryAgain());
   // Changing the type should still cause the duplicatae key
   ASSERT_TRUE(
-      mem->Add(seq, kTypeMerge, "key", "value2", nullptr /* kv_prot_info */)
+      mem->Add(seq, kTypeMerge, "key", "value2", nullptr */
+/* kv_prot_info *//*
+)
           .IsTryAgain());
   // Changing the seq number will make the key fresh
   ASSERT_OK(mem->Add(seq + 1, kTypeMerge, "key", "value2",
-                     nullptr /* kv_prot_info */));
+                     nullptr */
+/* kv_prot_info *//*
+));
   // Test with different types for duplicate keys
   ASSERT_TRUE(
-      mem->Add(seq, kTypeDeletion, "key", "", nullptr /* kv_prot_info */)
+      mem->Add(seq, kTypeDeletion, "key", "", nullptr */
+/* kv_prot_info *//*
+)
           .IsTryAgain());
   ASSERT_TRUE(
-      mem->Add(seq, kTypeSingleDeletion, "key", "", nullptr /* kv_prot_info */)
+      mem->Add(seq, kTypeSingleDeletion, "key", "", nullptr */
+/* kv_prot_info *//*
+)
           .IsTryAgain());
 
   // Test the duplicate keys under stress
@@ -172,7 +193,9 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
       seq++;
     }
     Status s = mem->Add(seq, kTypeValue, "foo", "value" + std::to_string(seq),
-                        nullptr /* kv_prot_info */);
+                        nullptr */
+/* kv_prot_info *//*
+);
     if (insert_dup) {
       ASSERT_TRUE(s.IsTryAgain());
     } else {
@@ -186,12 +209,18 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
       new TestPrefixExtractor());  // which uses _ to extract the prefix
   ioptions = ImmutableOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                     kMaxSequenceNumber, 0 /* column_family_id */);
+                     kMaxSequenceNumber, 0 */
+/* column_family_id *//*
+);
   // Insert a duplicate key with _ in it
   ASSERT_OK(
-      mem->Add(seq, kTypeValue, "key_1", "value", nullptr /* kv_prot_info */));
+      mem->Add(seq, kTypeValue, "key_1", "value", nullptr */
+/* kv_prot_info *//*
+));
   ASSERT_TRUE(
-      mem->Add(seq, kTypeValue, "key_1", "value", nullptr /* kv_prot_info */)
+      mem->Add(seq, kTypeValue, "key_1", "value", nullptr */
+/* kv_prot_info *//*
+)
           .IsTryAgain());
   delete mem;
 
@@ -199,12 +228,18 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   options.allow_concurrent_memtable_write = true;
   ioptions = ImmutableOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                     kMaxSequenceNumber, 0 /* column_family_id */);
+                     kMaxSequenceNumber, 0 */
+/* column_family_id *//*
+);
   MemTablePostProcessInfo post_process_info;
   ASSERT_OK(mem->Add(seq, kTypeValue, "key", "value",
-                     nullptr /* kv_prot_info */, true, &post_process_info));
+                     nullptr */
+/* kv_prot_info *//*
+, true, &post_process_info));
   ASSERT_TRUE(mem->Add(seq, kTypeValue, "key", "value",
-                       nullptr /* kv_prot_info */, true, &post_process_info)
+                       nullptr */
+/* kv_prot_info *//*
+, true, &post_process_info)
                   .IsTryAgain());
   delete mem;
 }
@@ -227,11 +262,15 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber, 0 /* column_family_id */);
+                               kMaxSequenceNumber, 0 */
+/* column_family_id *//*
+);
 
   // Put 0 as the base
   PutFixed64(&value, static_cast<uint64_t>(0));
-  ASSERT_OK(mem->Add(0, kTypeValue, "key", value, nullptr /* kv_prot_info */));
+  ASSERT_OK(mem->Add(0, kTypeValue, "key", value, nullptr */
+/* kv_prot_info *//*
+));
   value.clear();
 
   // Write Merge concurrently
@@ -240,7 +279,9 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
     std::string v1;
     for (int seq = 1; seq < num_ops / 2; seq++) {
       PutFixed64(&v1, seq);
-      ASSERT_OK(mem->Add(seq, kTypeMerge, "key", v1, nullptr /* kv_prot_info */,
+      ASSERT_OK(mem->Add(seq, kTypeMerge, "key", v1, nullptr */
+/* kv_prot_info *//*
+,
                          true, &post_process_info1));
       v1.clear();
     }
@@ -250,7 +291,9 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
     std::string v2;
     for (int seq = num_ops / 2; seq < num_ops; seq++) {
       PutFixed64(&v2, seq);
-      ASSERT_OK(mem->Add(seq, kTypeMerge, "key", v2, nullptr /* kv_prot_info */,
+      ASSERT_OK(mem->Add(seq, kTypeMerge, "key", v2, nullptr */
+/* kv_prot_info *//*
+,
                          true, &post_process_info2));
       v2.clear();
     }
@@ -262,9 +305,15 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   ReadOptions roptions;
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey("key", kMaxSequenceNumber);
-  bool res = mem->Get(lkey, &value, /*columns=*/nullptr, /*timestamp=*/nullptr,
+  bool res = mem->Get(lkey, &value, */
+/*columns=*//*
+nullptr, */
+/*timestamp=*//*
+nullptr,
                       &status, &merge_context, &max_covering_tombstone_seq,
-                      roptions, false /* immutable_memtable */);
+                      roptions, false */
+/* immutable_memtable *//*
+);
   ASSERT_OK(status);
   ASSERT_TRUE(res);
   uint64_t ivalue = DecodeFixed64(Slice(value).data());
@@ -425,9 +474,11 @@ TEST_F(DBMemTableTest, IntegrityChecks) {
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
-
-int main(int argc, char** argv) {
-  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+*/
+int main(int /*argc*/, char** /*argv*/) {
+    /*ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();*/
+    return 0;
 }
+

@@ -61,6 +61,15 @@ class CompactionPicker {
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer) = 0;
 
+  virtual CompactionL0* PickCompactionL0(const std::string& /*cf_name*/,
+                                         const MutableCFOptions& /*mutable_cf_options*/,
+                                         const MutableDBOptions& /*mutable_db_options*/,
+                                         VersionStorageInfo* /*vstorage*/,
+                                         LogBuffer* /* log_buffer */,
+                                         std::list<MemTable*>& /*mem_list*/)  {
+    return nullptr;
+  }
+
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
   // level that overlaps the specified range.  Caller should delete
@@ -105,7 +114,7 @@ class CompactionPicker {
   //
   // Requirement: DB mutex held
   void ReleaseCompactionFiles(Compaction* c, Status status);
-
+  void ReleaseCompactionFiles(CompactionL0* c, Status status);
   // Returns true if any one of the specified files are being compacted
   bool AreFilesInCompaction(const std::vector<FileMetaData*>& files);
 
@@ -214,12 +223,16 @@ class CompactionPicker {
 
   // Register this compaction in the set of running compactions
   void RegisterCompaction(Compaction* c);
-
+  void RegisterCompactionL0(CompactionL0* c);
   // Remove this compaction from the set of running compactions
   void UnregisterCompaction(Compaction* c);
+  void UnregisterCompactionL0(CompactionL0* c);
 
   std::set<Compaction*>* level0_compactions_in_progress() {
     return &level0_compactions_in_progress_;
+  }
+  std::set<CompactionL0*>* level0_compactionsl0_in_progress() {
+    return &level0_compactions_l0_in_progress_;
   }
   std::unordered_set<Compaction*>* compactions_in_progress() {
     return &compactions_in_progress_;
@@ -239,10 +252,11 @@ class CompactionPicker {
   // Keeps track of all compactions that are running on Level0.
   // Protected by DB mutex
   std::set<Compaction*> level0_compactions_in_progress_;
-
+  std::set<CompactionL0*> level0_compactions_l0_in_progress_;
   // Keeps track of all compactions that are running.
   // Protected by DB mutex
   std::unordered_set<Compaction*> compactions_in_progress_;
+  //std::unordered_set<CompactionL0*> compactionsl0_in_progress_;
 
   const InternalKeyComparator* const icmp_;
 };

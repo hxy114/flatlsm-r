@@ -304,4 +304,9 @@ MemTableRep* VectorRepFactory::CreateMemTableRep(
     const SliceTransform*, Logger* /*logger*/) {
   return new VectorRep(compare, allocator, count_);
 }
+MemTableRep* VectorRepFactory::CreateMemTableRep(
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,NvmArena */*nvmArena*/,
+    const SliceTransform*, Logger* /*logger*/) {
+  return new VectorRep(compare, allocator, count_);
+}
 }  // namespace ROCKSDB_NAMESPACE

@@ -53,7 +53,8 @@ enum FileType {
   kMetaDatabase,
   kIdentityFile,
   kOptionsFile,
-  kBlobFile
+  kBlobFile,
+  kMyLogFile,
 };
 
 // User-oriented representation of internal key types.

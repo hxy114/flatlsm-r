@@ -487,7 +487,7 @@ class DBImpl : public DB {
   Status GetDbSessionId(std::string& session_id) const override;
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
-
+  size_t DefaultColumnFamilyQueueSize() const;
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
 
   Status Close() override;
@@ -663,6 +663,13 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, std::string* timestamp);
+  bool Get(std::list<MemTable*>&list,const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
+           MergeContext* merge_context,
+           SequenceNumber* max_covering_tombstone_seq,
+           const ReadOptions& read_opts, bool immutable_memtable,
+           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+           bool do_merge = true);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
@@ -681,6 +688,13 @@ class DBImpl : public DB {
                                       ReadCallback* read_callback,
                                       bool expose_blob_index = false,
                                       bool allow_refresh = true);
+
+  ArenaWrappedDBIter* NewIteratorImplL0(const ReadOptions& options,
+                                        ColumnFamilyHandleImpl* cfh,
+                                        Version* sv, SequenceNumber snapshot,
+                                        ReadCallback* read_callback,
+                                        bool expose_blob_index = false,
+                                        bool allow_refresh = true);
 
   virtual SequenceNumber GetLastPublishedSequence() const {
     if (last_seq_same_as_publish_seq_) {
@@ -818,6 +832,13 @@ class DBImpl : public DB {
                                         Arena* arena, SequenceNumber sequence,
                                         bool allow_unprepared_value,
                                         ArenaWrappedDBIter* db_iter = nullptr);
+
+  InternalIterator* NewInternalIteratorL0(const ReadOptions& read_options,
+                                          ColumnFamilyData* cfd,
+                                          Version* super_version,
+                                          Arena* arena, SequenceNumber sequence,
+                                          bool allow_unprepared_value,
+                                          ArenaWrappedDBIter* db_iter = nullptr);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -1364,7 +1385,7 @@ class DBImpl : public DB {
   // `mutex_` can be a hot lock in some workloads, so it deserves dedicated
   // cachelines.
   mutable CacheAlignedInstrumentedMutex mutex_;
-
+  mutable InstrumentedCondVar background_work_finished_signal_L0_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
 
@@ -1875,6 +1896,7 @@ class DBImpl : public DB {
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
     Compaction* compaction;
+    CompactionL0 * compactionl0;
     // caller retains ownership of `manual_compaction_state` as it is reused
     // across background compactions.
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
@@ -2178,7 +2200,7 @@ class DBImpl : public DB {
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
-
+  Status MakeRoomForWritePmtable(bool fouce);
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
@@ -2223,17 +2245,26 @@ class DBImpl : public DB {
   void SchedulePendingPurge(std::string fname, std::string dir_to_sync,
                             FileType type, uint64_t number, int job_id);
   static void BGWorkCompaction(void* arg);
+  static void BGWorkCompactionL0(void* arg);
   // Runs a pre-chosen universal compaction involving bottom level in a
   // separate, bottom-pri thread pool.
   static void BGWorkBottomCompaction(void* arg);
   static void BGWorkFlush(void* arg);
   static void BGWorkPurge(void* arg);
   static void UnscheduleCompactionCallback(void* arg);
+  static void UnscheduleCompactionL0Callback(void* arg);
   static void UnscheduleFlushCallback(void* arg);
   void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                                 Env::Priority thread_pri);
+  void BackgroundCallCompactionL0(PrepickedCompaction* prepicked_compaction,
+                                    Env::Priority bg_thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
+
+  Status BackgroundCompactionL0 (bool* madeProgress, JobContext* job_context,
+                                LogBuffer* log_buffer,
+                                PrepickedCompaction* prepicked_compaction,
+                                Env::Priority thread_pri, bool &run);
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
@@ -2924,6 +2955,7 @@ class DBImpl : public DB {
   // The number of LockWAL called without matching UnlockWAL call.
   // See also lock_wal_write_token_
   uint32_t lock_wal_count_;
+  bool use_partition_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

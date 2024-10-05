@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <iostream>
 #include <atomic>
 #include <deque>
 #include <functional>
@@ -24,6 +25,8 @@
 #include "db/version_edit.h"
 #include "memory/allocator.h"
 #include "memory/concurrent_arena.h"
+#include "memory/nvm_arena.h"
+#include "memory/nvm_module.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -114,6 +117,11 @@ class MemTable {
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
                     SequenceNumber earliest_seq, uint32_t column_family_id);
+  explicit MemTable(const InternalKeyComparator& comparator,
+                    const ImmutableOptions& ioptions,
+                    const MutableCFOptions& mutable_cf_options,
+                    WriteBufferManager* write_buffer_manager,
+                    SequenceNumber earliest_seq, uint32_t column_family_id, PmLogHead *pmLogHead);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;
@@ -124,7 +132,7 @@ class MemTable {
   // Increase reference count.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void Ref() { ++refs_; }
+  void Ref() { ++refs_;}
 
   // Drop reference count.
   // If the refcount goes to zero return this memtable, otherwise return null.
@@ -212,6 +220,9 @@ class MemTable {
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena);
 
+  InternalIterator* NewIterator(
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping);
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live
   // while the returned iterator is live.
@@ -572,6 +583,11 @@ class MemTable {
                                     uint32_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
+  size_t ApproximateNvmMemoryUsage();
+  void FreePmtable();
+  std::string &GetMinKey();
+  std::string &GetMaxKey();
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -585,6 +601,8 @@ class MemTable {
   const size_t kArenaBlockSize;
   AllocTracker mem_tracker_;
   ConcurrentArena arena_;
+  PmLogHead *pmLogHead_;
+  NvmArena nvmArena_;
   std::unique_ptr<MemTableRep> table_;
   std::unique_ptr<MemTableRep> range_del_table_;
   std::atomic_bool is_range_del_table_empty_;
@@ -674,7 +692,11 @@ class MemTable {
   // feature enabled and the `persist_user_defined_timestamp` flag is false.
   // Otherwise, this field just contains an empty Slice.
   Slice newest_udt_;
-
+ public:
+  std::string min_key_;
+  std::string max_key_;
+  std::atomic<uint64_t> count_;
+ private:
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
 

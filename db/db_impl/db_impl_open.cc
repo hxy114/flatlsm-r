@@ -770,7 +770,7 @@ Status DBImpl::Recover(
       return s;
     }
 
-    if (!wal_files.empty()) {
+    if (!wal_files.empty() && !use_partition_) {
       if (error_if_wal_file_exists) {
         return Status::Corruption(
             "The db was opened in readonly mode with error_if_wal_file_exists"
@@ -1938,6 +1938,9 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {
   IOStatus io_s;
+  if(use_partition_) {
+    return io_s;
+  }
   std::unique_ptr<FSWritableFile> lfile;
 
   DBOptions db_options =
@@ -2108,7 +2111,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     false /* error_if_wal_file_exists */,
                     false /* error_if_data_exists_in_wals */, is_retry,
                     &recovered_seq, &recovery_ctx, can_retry);
-  if (s.ok()) {
+  if (s.ok() && !impl->use_partition_) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
@@ -2207,6 +2210,19 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
 
+  if(s.ok() && impl->use_partition_) {
+    auto cfd =
+        impl->versions_->GetColumnFamilySet()->GetColumnFamily(kDefaultColumnFamilyName);
+    nvmManager=new NvmManager(false);
+    PmLogHead *pmLogHead= nullptr;
+    while((pmLogHead=nvmManager->get_pm_log())== nullptr){
+      ROCKS_LOG_INFO(impl->immutable_db_options().logger,"no pm log");
+      impl->background_work_finished_signal_L0_.Wait();
+    }
+    cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                           impl->versions_->LastSequence(),pmLogHead);
+  }
+
   if (s.ok()) {
     SuperVersionContext sv_context(/* create_superversion */ true);
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
@@ -2221,7 +2237,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->PersistentStatsProcessFormatVersion();
   }
 
-  if (s.ok()) {
+  /*if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       if (!cfd->mem()->IsSnapshotSupported()) {
         impl->is_snapshot_supported_ = false;
@@ -2237,7 +2253,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         break;
       }
     }
-  }
+  }*/
   TEST_SYNC_POINT("DBImpl::Open:Opened");
   Status persist_options_status;
   if (s.ok()) {
@@ -2294,7 +2310,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->mutex_.Unlock();
   }
 
-  if (s.ok()) {
+  if (s.ok() && !impl->use_partition_) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
                      impl);
     LogFlush(impl->immutable_db_options_.info_log);

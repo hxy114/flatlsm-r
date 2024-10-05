@@ -22,6 +22,7 @@
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
+#include "db/compaction/compaction_picker_l0.h"
 #include "db/db_impl/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
@@ -519,7 +520,9 @@ std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
   }
   return paths;
 }
-
+size_t ColumnFamilyData::GetQueueSize(){
+  return mem_list_.size();
+}
 const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId =
     std::numeric_limits<uint32_t>::max();
 
@@ -601,6 +604,8 @@ ColumnFamilyData::ColumnFamilyData(
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
+      compaction_picker_l0_.reset(
+          new L0CompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
@@ -1155,6 +1160,11 @@ MemTable* ColumnFamilyData::ConstructNewMemtable(
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
                       write_buffer_manager_, earliest_seq, id_);
 }
+MemTable* ColumnFamilyData::ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
+                               SequenceNumber earliest_seq,PmLogHead *pmLogHead) {
+  return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
+                      write_buffer_manager_, earliest_seq, id_, pmLogHead);
+}
 
 void ColumnFamilyData::CreateNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
@@ -1162,6 +1172,14 @@ void ColumnFamilyData::CreateNewMemtable(
     delete mem_->Unref();
   }
   SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
+  mem_->Ref();
+}
+void ColumnFamilyData::CreateNewMemtable(
+    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq, PmLogHead *pmLogHead) {
+  if (mem_ != nullptr) {
+    delete mem_->Unref();
+  }
+  SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq,pmLogHead));
   mem_->Ref();
 }
 
@@ -1176,6 +1194,17 @@ Compaction* ColumnFamilyData::PickCompaction(
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
       log_buffer);
+  if (result != nullptr) {
+    result->FinalizeInputInfo(current_);
+  }
+  return result;
+}
+CompactionL0* ColumnFamilyData::PickCompactionL0(
+    const MutableCFOptions& mutable_options,
+    const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
+  auto* result = compaction_picker_l0_->PickCompactionL0(
+      GetName(), mutable_options, mutable_db_options, current_->storage_info(),
+      log_buffer,mem_list_);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }

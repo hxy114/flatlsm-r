@@ -8,6 +8,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "compactionl0_job.h"
 #include "db/compaction/compaction_job.h"
 #include "db/compaction/compaction_state.h"
 #include "logging/logging.h"
@@ -18,7 +19,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 class SubcompactionState;
+class SubcompactionL0State;
+CompactionServiceJobStatus
+CompactionL0Job::ProcessKeyValueCompactionWithCompactionService(
+    SubcompactionL0State* /*sub_compact*/) {
+  return CompactionServiceJobStatus::kSuccess;
 
+}
 CompactionServiceJobStatus
 CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     SubcompactionState* sub_compact) {

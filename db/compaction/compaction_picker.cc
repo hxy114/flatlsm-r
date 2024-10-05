@@ -140,6 +140,14 @@ void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
   }
 }
 
+// Delete this compaction from the list of running compactions.
+void CompactionPicker::ReleaseCompactionFiles(CompactionL0* c, Status status) {
+  UnregisterCompactionL0(c);
+  if (!status.ok()) {
+    c->ResetNextCompactionIndex();
+  }
+}
+
 void CompactionPicker::GetRange(const CompactionInputFiles& inputs,
                                 InternalKey* smallest,
                                 InternalKey* largest) const {
@@ -1157,6 +1165,27 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
                            c);
 }
 
+void CompactionPicker::RegisterCompactionL0(CompactionL0* c) {
+  if (c == nullptr) {
+    return;
+  }
+  assert(ioptions_.compaction_style != kCompactionStyleLevel ||
+         c->output_level() == 0 ||
+         !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level(),
+                                          c->GetPenultimateLevel()));
+  // CompactionReason::kExternalSstIngestion's start level is just a placeholder
+  // number without actual meaning as file ingestion technically does not have
+  // an input level like other compactions
+  if ((c->start_level() == -1 &&
+       c->compaction_reason() != CompactionReason::kExternalSstIngestion) ||
+      ioptions_.compaction_style == kCompactionStyleUniversal) {
+    level0_compactions_l0_in_progress_.insert(c);
+  }
+  //compactions_in_progress_.insert(c);
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::RegisterCompaction:Registered",
+                           c);
+}
+
 void CompactionPicker::UnregisterCompaction(Compaction* c) {
   if (c == nullptr) {
     return;
@@ -1166,6 +1195,17 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
     level0_compactions_in_progress_.erase(c);
   }
   compactions_in_progress_.erase(c);
+}
+
+void CompactionPicker::UnregisterCompactionL0(CompactionL0* c) {
+  if (c == nullptr) {
+    return;
+  }
+  if (c->start_level() == -1 ||
+      ioptions_.compaction_style == kCompactionStyleUniversal) {
+    level0_compactions_l0_in_progress_.erase(c);
+  }
+  //compactions_in_progress_.erase(c);
 }
 
 void CompactionPicker::PickFilesMarkedForCompaction(

@@ -216,6 +216,7 @@ class PinnableSlice : public Slice, public Cleanable {
 
  private:
   friend class PinnableSlice4Test;
+  friend class DBImpl;
   std::string self_space_;
   std::string* buf_;
   bool pinned_ = false;

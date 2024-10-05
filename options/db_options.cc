@@ -788,7 +788,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       follower_catchup_retry_count(options.follower_catchup_retry_count),
       follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms),
       metadata_write_temperature(options.metadata_write_temperature),
-      wal_write_temperature(options.wal_write_temperature) {
+      wal_write_temperature(options.wal_write_temperature),
+      use_partition_(options.use_partition_){
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();

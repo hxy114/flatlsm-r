@@ -74,6 +74,11 @@ static std::string MakeFileName(const std::string& name, uint64_t number,
   return name + "/" + MakeFileName(number, suffix);
 }
 
+std::string MyLogFileName(const std::string& name, uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(name, number, "mylog");
+}
+
 std::string LogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
   return MakeFileName(name, number, "log");
@@ -147,6 +152,18 @@ std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
     path = db_paths[path_id].path;
   }
   return MakeTableFileName(path, number);
+}
+
+std::string MyLogFileName(const std::vector<DbPath>& db_paths, uint64_t number,
+                          uint32_t path_id) {
+  assert(number > 0);
+  std::string path;
+  if (path_id >= db_paths.size()) {
+    path = db_paths.back().path;
+  } else {
+    path = db_paths[path_id].path;
+  }
+  return MyLogFileName(path, number);
 }
 
 void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,

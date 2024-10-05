@@ -49,6 +49,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class Allocator;
+class NvmArena;
 class LookupKey;
 class SliceTransform;
 class Logger;
@@ -153,7 +154,7 @@ class MemTableRep {
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
   virtual void InsertConcurrently(KeyHandle handle);
-
+  virtual size_t NvmUsage() { return 0; }
   // Same as ::InsertConcurrently
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
@@ -341,11 +342,22 @@ class MemTableRepFactory : public Customizable {
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
                                          Logger* logger) = 0;
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                         Allocator*, NvmArena*, const SliceTransform*,
+                                         Logger* /*logger*/) {
+    return nullptr;
+  }
   virtual MemTableRep* CreateMemTableRep(
       const MemTableRep::KeyComparator& key_cmp, Allocator* allocator,
       const SliceTransform* slice_transform, Logger* logger,
       uint32_t /* column_family_id */) {
     return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
+  }
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& key_cmp, Allocator* allocator, NvmArena* nvmArena,
+      const SliceTransform* slice_transform, Logger* logger,
+      uint32_t /* column_family_id */) {
+    return CreateMemTableRep(key_cmp, allocator, nvmArena,slice_transform, logger);
   }
 
   const char* Name() const override = 0;
@@ -384,6 +396,9 @@ class SkipListFactory : public MemTableRepFactory {
   MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
                                  const SliceTransform*,
                                  Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*, NvmArena*,
+                                 const SliceTransform*,
+                                 Logger* logger) override;
 
   bool IsInsertConcurrentlySupported() const override { return true; }
 
@@ -416,6 +431,9 @@ class VectorRepFactory : public MemTableRepFactory {
   // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;
   MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
+                                 const SliceTransform*,
+                                 Logger* logger) override;
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,NvmArena*,
                                  const SliceTransform*,
                                  Logger* logger) override;
 };

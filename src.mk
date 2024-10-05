@@ -328,6 +328,17 @@ LIB_SOURCES =                                                   \
   utilities/wal_filter.cc                                       \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  memory/nvm_arena.cc 											\
+  memory/nvm_module.cc											\
+  db/vlog_manager.cc											\
+  db/vlog_writer.cc												\
+  db/vlog_fetcher.cc											\
+  db/compaction/compaction_picker_l0.cc							\
+  db/compaction/compactionl0_iterator.cc						\
+  db/compaction/compactionl0_job.cc								\
+  db/compaction/compactionl0_outputs.cc							\
+  db/compaction/compactionl0_state.cc							\
+  db/compaction/subcompactionl0_state.cc						\
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
