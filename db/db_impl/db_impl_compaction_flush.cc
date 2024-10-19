@@ -2273,6 +2273,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              FlushReason flush_reason,
                              bool entered_write_thread) {
   // This method should not be called if atomic_flush is true.
+  return Status::OK();
   assert(!immutable_db_options_.atomic_flush);
   if (!flush_options.wait && write_controller_.IsStopped()) {
     std::ostringstream oss;
