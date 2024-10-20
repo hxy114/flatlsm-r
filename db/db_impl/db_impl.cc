@@ -2752,8 +2752,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       std::string value;
       Slice addr(*get_impl_options.value);
       cfd->vlog_manager_.FetchValueFromVlog(addr,&value);
-      get_impl_options.value->buf_->assign(value);
-
+      get_impl_options.value->PinSelf(value);
     }
     RecordTick(stats_, MEMTABLE_MISS);
   }
