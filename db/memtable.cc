@@ -254,6 +254,114 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   persist_user_defined_timestamps_ = ioptions.persist_user_defined_timestamps;
 }
 
+MemTable::MemTable(const InternalKeyComparator& cmp,
+                   const ImmutableOptions& ioptions,
+                   const MutableCFOptions& mutable_cf_options,
+                   WriteBufferManager* write_buffer_manager,
+                   SequenceNumber latest_seq, uint32_t column_family_id,PmLogHead *pmLogHead, bool /*recover*/)
+    : comparator_(cmp),
+      moptions_(ioptions, mutable_cf_options),
+      refs_(0),
+      kArenaBlockSize(Arena::OptimizeBlockSize(moptions_.arena_block_size)),
+      mem_tracker_(write_buffer_manager),
+      arena_(moptions_.arena_block_size,
+             (write_buffer_manager != nullptr &&
+              (write_buffer_manager->enabled() ||
+               write_buffer_manager->cost_to_cache()))
+                 ? &mem_tracker_
+                 : nullptr,
+             mutable_cf_options.memtable_huge_page_size),
+      pmLogHead_(pmLogHead),
+      nvmArena_(pmLogHead_,
+                (write_buffer_manager != nullptr &&
+                 (write_buffer_manager->enabled() ||
+                  write_buffer_manager->cost_to_cache()))
+                    ? &mem_tracker_
+                    : nullptr,false,true),
+      table_(ioptions.memtable_factory->CreateMemTableRep(
+          comparator_, &arena_, &nvmArena_,mutable_cf_options.prefix_extractor.get(),
+          ioptions.logger, column_family_id)),
+      range_del_table_(SkipListFactory().CreateMemTableRep(
+          comparator_, &arena_, &nvmArena_,nullptr /* transform */, ioptions.logger,
+          column_family_id)),
+      is_range_del_table_empty_(true),
+      data_size_(0),
+      num_entries_(0),
+      num_deletes_(0),
+      num_range_deletes_(0),
+      write_buffer_size_(mutable_cf_options.write_buffer_size),
+      flush_in_progress_(false),
+      flush_completed_(false),
+      file_number_(0),
+      first_seqno_(0),
+      earliest_seqno_(latest_seq),
+      creation_seq_(latest_seq),
+      mem_next_logfile_number_(0),
+      min_prep_log_referenced_(0),
+      locks_(moptions_.inplace_update_support
+                 ? moptions_.inplace_update_num_locks
+                 : 0),
+      prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
+      flush_state_(FLUSH_NOT_REQUESTED),
+      clock_(ioptions.clock),
+      insert_with_hint_prefix_extractor_(
+          ioptions.memtable_insert_with_hint_prefix_extractor.get()),
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()),
+      atomic_flush_seqno_(kMaxSequenceNumber),
+      approximate_memory_usage_(0),
+      memtable_max_range_deletions_(
+          mutable_cf_options.memtable_max_range_deletions),
+      count_(0){
+  assert(pmLogHead_!= nullptr);
+  char *kv_buffer=(char*)pmLogHead_+PM_LOG_HEAD_SIZE;
+  while(kv_buffer<(char*)pmLogHead_+pmLogHead_->used_size){
+    Add(kv_buffer, nullptr);
+    uint64_t  totollen=0;
+    uint32_t  len=0;
+    GetVarint32Ptr(kv_buffer, kv_buffer + 5, &len);
+    totollen+=VarintLength(len)+len;
+    GetVarint32Ptr(kv_buffer+totollen, kv_buffer+totollen + 5, &len);
+    totollen+=VarintLength(len)+len;
+    kv_buffer+=totollen;
+    count_.fetch_add(1);
+  }
+  assert(kv_buffer==(char*)pmLogHead_+pmLogHead_->used_size);
+
+
+  UpdateFlushState();
+  // something went wrong if we need to flush before inserting anything
+  assert(!ShouldScheduleFlush());
+
+  // use bloom_filter_ for both whole key and prefix bloom filter
+  if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
+      moptions_.memtable_prefix_bloom_bits > 0) {
+    bloom_filter_.reset(
+        new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
+                         6 /* hard coded 6 probes */,
+                         moptions_.memtable_huge_page_size, ioptions.logger));
+  }
+  // Initialize cached_range_tombstone_ here since it could
+  // be read before it is constructed in MemTable::Add(), which could also lead
+  // to a data race on the global mutex table backing atomic shared_ptr.
+  auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+  size_t size = cached_range_tombstone_.Size();
+  for (size_t i = 0; i < size; ++i) {
+    std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
+        cached_range_tombstone_.AccessAtCore(i);
+    auto new_local_cache_ref = std::make_shared<
+        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+    std::atomic_store_explicit(
+        local_cache_ref_ptr,
+        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
+                                                           new_cache.get()),
+        std::memory_order_relaxed);
+  }
+  const Comparator* ucmp = cmp.user_comparator();
+  assert(ucmp);
+  ts_sz_ = ucmp->timestamp_size();
+  persist_user_defined_timestamps_ = ioptions.persist_user_defined_timestamps;
+}
+
 
 MemTable::~MemTable() {
   mem_tracker_.FreeMem();
@@ -1067,6 +1175,154 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   count_.fetch_add(1);
   return Status::OK();
 }
+
+Status MemTable::Add(char * buffer,
+                     const ProtectionInfoKVOS64* /*kv_prot_info*/,
+                     bool allow_concurrent,
+                     MemTablePostProcessInfo* /*post_process_info*/, void** hint) {//disable hint,disable post_process_info
+  // Format of an entry is concatenation of:
+  //  key_size     : varint32 of internal_key.size()
+  //  key bytes    : char[internal_key.size()]
+  //  value_size   : varint32 of value.size()
+  //  value bytes  : char[value.size()]
+  //  checksum     : char[moptions_.protection_bytes_per_key]
+  //std::cout<<"insert key:"<<key.ToString()<<std::endl;
+  //std::cout<<"insert value:"<<value.ToString()<<std::endl;
+  //std::cout<<"insert seq:"<<s<<std::endl;
+  //std::cout<<"insert type:"<<type<<std::endl;
+
+  //char* buf1 = nullptr;
+  char* buf = nullptr;
+
+  std::unique_ptr<MemTableRep>& table = table_;
+  KeyHandle handle = table->Allocate(0, &buf);
+  //printf("buf1:%p \n", buf1);
+  //uint64_t a = reinterpret_cast<uint64_t >(buf1);
+  *reinterpret_cast<uint64_t *>(buf) = reinterpret_cast<uint64_t >(buffer);
+  //buf =  reinterpret_cast<char*>(*reinterpret_cast<uint64_t *>(buf));
+  //printf("buf1:%p, handle:%p \n",buf1,handle);
+  //printf("buf:%p \n", buf);
+  /*char* p = EncodeVarint32(buf, internal_key_size);
+  memcpy(p, key.data(), key_size);
+  Slice key_slice(p, key_size);
+  p += key_size;
+  uint64_t packed = PackSequenceAndType(s, type);
+  EncodeFixed64(p, packed);
+  p += 8;
+  p = EncodeVarint32(p, val_size);
+  memcpy(p, value.data(), val_size);*/
+
+
+
+  if (!allow_concurrent) {
+    // Extract prefix for insert with hint. Hints are for point key table
+    // (`table_`) only, not `range_del_table_`.
+    /*if (table == table_ && insert_with_hint_prefix_extractor_ != nullptr &&
+        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {//disable
+      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
+      bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
+      if (UNLIKELY(!res)) {
+        return Status::TryAgain("key+seq exists");
+      }
+    } else {*/
+    bool res = table->InsertKey(handle);
+    if (UNLIKELY(!res)) {
+      return Status::TryAgain("key+seq exists");
+    }
+    //}
+
+    // this is a bit ugly, but is the way to avoid locked instructions
+    // when incrementing an atomic
+    /*num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+                       std::memory_order_relaxed);
+    data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
+                     std::memory_order_relaxed);
+    if (type == kTypeDeletion || type == kTypeSingleDeletion ||
+        type == kTypeDeletionWithTimestamp) {
+      num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
+                         std::memory_order_relaxed);
+    } else if (type == kTypeRangeDeletion) {
+      uint64_t val = num_range_deletes_.load(std::memory_order_relaxed) + 1;
+      num_range_deletes_.store(val, std::memory_order_relaxed);
+    }
+
+    if (bloom_filter_ && prefix_extractor_ &&
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
+    }
+    if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+      bloom_filter_->Add(key_without_ts);
+    }
+
+    // The first sequence number inserted into the memtable
+    assert(first_seqno_ == 0 || s >= first_seqno_);
+    if (first_seqno_ == 0) {
+      first_seqno_.store(s, std::memory_order_relaxed);
+
+      if (earliest_seqno_ == kMaxSequenceNumber) {
+        earliest_seqno_.store(GetFirstSequenceNumber(),
+                              std::memory_order_relaxed);
+      }
+      assert(first_seqno_.load() >= earliest_seqno_.load());
+    }
+    assert(post_process_info == nullptr);*/
+    // TODO(yuzhangyu): support updating newest UDT for when `allow_concurrent`
+    // is true.
+    //MaybeUpdateNewestUDT(key_slice);
+    UpdateFlushState();
+  } else {
+    bool res = (hint == nullptr)
+                   ? table->InsertKeyConcurrently(handle)
+                   : table->InsertKeyWithHintConcurrently(handle, hint);
+    if (UNLIKELY(!res)) {
+      return Status::TryAgain("key+seq exists");
+    }
+
+    /* assert(post_process_info != nullptr);
+     post_process_info->num_entries++;
+     post_process_info->data_size += encoded_len;
+     if (type == kTypeDeletion) {
+       post_process_info->num_deletes++;
+     }
+
+     if (bloom_filter_ && prefix_extractor_ &&
+         prefix_extractor_->InDomain(key_without_ts)) {
+       bloom_filter_->AddConcurrently(
+           prefix_extractor_->Transform(key_without_ts));
+     }
+     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
+       bloom_filter_->AddConcurrently(key_without_ts);
+     }
+
+     // atomically update first_seqno_ and earliest_seqno_.
+     uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
+     while ((cur_seq_num == 0 || s < cur_seq_num) &&
+            !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
+     }
+     uint64_t cur_earliest_seqno =
+         earliest_seqno_.load(std::memory_order_relaxed);
+     while (
+         (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
+         !earliest_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+     }*/
+  }
+  /*if(min_key_.empty()||comparator_.comparator.user_comparator()->Compare(min_key_,key)>0){
+    min_key_=key.ToString();
+  }
+  if(max_key_.empty()||comparator_.comparator.user_comparator()->Compare(max_key_,key)<0){
+    max_key_=key.ToString();
+  }*/
+  UpdateOldestKeyTime();
+  //const char*  k=reinterpret_cast<char*>(*reinterpret_cast<uint64_t *>(buf1));;
+  //ParsedInternalKey result;
+  //ParseInternalKey({k + VarintLength(internal_key_size),internal_key_size},&result,false);
+  //std::cout<<"right"<<(k==key)<<std::endl;
+  //std::cout<<"inserted key:"<<result.user_key.ToString()<<std::endl;
+  //std::cout<<"inserted seq:"<<result.sequence<<std::endl;
+  //std::cout<<"inserted type:"<<result.type<<std::endl;
+  return Status::OK();
+}
+
 
 // Callback from MemTable::Get()
 namespace {

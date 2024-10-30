@@ -857,6 +857,17 @@ Status DBImpl::Recover(
   return s;
 }
 
+void DBImpl::RecoverNVM(ColumnFamilyData *cfd){
+  std::map<uint64_t ,MemTable*>pmTableMap;
+  auto pm_logs=nvmManager->get_recover_pm_log_nodes_();
+  for(auto & pm_log : pm_logs){
+    MemTable *pmTable = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),0,pm_log.second,true);
+    //MemTable *pmTable=new MemTable(cfd->internal_comparator_,cfd->cfd->write_buffer_manager_,pm_log.second);
+    pmTable->Ref();
+    cfd->mem_list_.push_back(pmTable);
+  }
+}
+
 Status DBImpl::PersistentStatsProcessFormatVersion() {
   mutex_.AssertHeld();
   Status s;
@@ -2068,6 +2079,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   } else {
     assert(impl->init_logger_creation_s_.ok());
   }
+  //std::cout<<impl->immutable_db_options_.GetWalDir()<<std::endl;
+  Status  is_exit = impl->env_->FileExists(impl->immutable_db_options_.GetWalDir()+"/CURRENT");
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
     std::vector<std::string> paths;
@@ -2210,7 +2223,33 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
 
+   //const uint64_t start_micros = impl->env_->NowMicros();
   if(s.ok() && impl->use_partition_) {
+    if (!is_exit.ok()) {
+      //std::cout<<"no exit"<<std::endl;
+      auto cfd =
+          impl->versions_->GetColumnFamilySet()->GetColumnFamily(kDefaultColumnFamilyName);
+      nvmManager=new NvmManager(false);
+      PmLogHead *pmLogHead= nullptr;
+      while((pmLogHead=nvmManager->get_pm_log())== nullptr){
+        ROCKS_LOG_INFO(impl->immutable_db_options().logger,"no pm log");
+        impl->background_work_finished_signal_L0_.Wait();
+      }
+      cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                             impl->versions_->LastSequence(),pmLogHead);
+    } else {
+      //std::cout << "exit" << std::endl;
+      auto cfd =
+          impl->versions_->GetColumnFamilySet()->GetColumnFamily(kDefaultColumnFamilyName);
+      nvmManager=new NvmManager(true);
+      impl->RecoverNVM(cfd);
+    }
+
+  }
+  //std::cout << impl->env_->NowMicros() - start_micros<<"  "<<s.ToString();
+
+
+  /*if(s.ok() && impl->use_partition_) {
     auto cfd =
         impl->versions_->GetColumnFamilySet()->GetColumnFamily(kDefaultColumnFamilyName);
     nvmManager=new NvmManager(false);
@@ -2221,7 +2260,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
     cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
                            impl->versions_->LastSequence(),pmLogHead);
-  }
+  }*/
 
   if (s.ok()) {
     SuperVersionContext sv_context(/* create_superversion */ true);

@@ -12,7 +12,7 @@ include common.mk
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
-CXXFLAGS += ${EXTRA_CXXFLAGS}  -Wno-overloaded-virtual
+CXXFLAGS += ${EXTRA_CXXFLAGS}  -Wno-overloaded-virtual  -Wno-unused-variable -Wno-maybe-uninitialized
 LDFLAGS += $(EXTRA_LDFLAGS)
 LDFLAGS += -lpmem
 MACHINE ?= $(shell uname -m)
@@ -912,7 +912,7 @@ dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 # creates library and programs
 release: clean
-	LIB_MODE=$(LIB_MODE) DEBUG_LEVEL=0 $(MAKE) $(LIBRARY) tools db_bench
+	LIB_MODE=$(LIB_MODE) DEBUG_LEVEL=0 $(MAKE) $(LIBRARY) tools db_bench reopen
 
 coverage: clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
@@ -1330,6 +1330,9 @@ librocksdb_env_basic_test.a: $(OBJ_DIR)/env/env_basic_test.o $(LIB_OBJECTS) $(TE
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
 db_bench: $(OBJ_DIR)/tools/db_bench.o $(BENCH_OBJECTS) $(TESTUTIL) $(LIBRARY)
+	$(AM_LINK)
+
+reopen: $(OBJ_DIR)/tools/reopen.o $(BENCH_OBJECTS) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
 trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)

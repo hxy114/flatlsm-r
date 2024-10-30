@@ -1600,6 +1600,8 @@ class DBImpl : public DB {
       bool error_if_data_exists_in_wals = false, bool is_retry = false,
       uint64_t* recovered_seq = nullptr,
       RecoveryContext* recovery_ctx = nullptr, bool* can_retry = nullptr);
+  Status RecoverPartition(VersionEdit* edit, bool* save_manifest);
+  void RecoverNVM(ColumnFamilyData *cfd);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 

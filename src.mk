@@ -449,6 +449,7 @@ BENCH_MAIN_SOURCES =                                                    \
   tools/db_bench.cc                                                     \
   util/filter_bench.cc                                                  \
   utilities/persistent_cache/persistent_cache_bench.cc                  \
+  tools/reopen.cc														\
   #util/log_write_bench.cc                                               \
 
 TEST_MAIN_SOURCES =                                                     \

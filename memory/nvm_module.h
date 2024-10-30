@@ -48,6 +48,7 @@ class NvmManager {
   PmLogHead * get_pm_log();
 
   void free_pm_log(PmLogHead * pm_log);
+  std::vector<std::pair<uint64_t ,PmLogHead *>>&& get_recover_pm_log_nodes_();
   char *get_base();
   size_t get_free_pm_log_number();
   uint64_t  L0_wait_;
@@ -61,6 +62,8 @@ class NvmManager {
 
 
   std::vector<PmLogHead *>free_pm_log_list_;
+
+  std::vector<std::pair<uint64_t ,PmLogHead *>>recover_pm_log_list_;
 };
 
 void reset(PmLogHead *pm_log_head);

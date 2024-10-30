@@ -44,7 +44,9 @@ void NvmManager::free_pm_log(PmLogHead* pm_log) {
   mutex_.Unlock();
 }
 
-
+std::vector<std::pair<uint64_t ,PmLogHead *>>&& NvmManager::get_recover_pm_log_nodes_(){
+  return std::move(recover_pm_log_list_);
+}
 NvmManager::NvmManager (bool is_recover_){
   size_t map_len;
   int is_pmem;
@@ -69,6 +71,17 @@ NvmManager::NvmManager (bool is_recover_){
   free_meta_node_list_.emplace_back(meta_node);
 }*/
 
+
+    for(size_t i=0;i<PM_LOG_NUMBER;i++){
+      PmLogHead *pm_log_head=(PmLogHead*)(pm_log_base_+i*PM_LOG_SIZE);
+      if(pm_log_head->magic_number==PM_LOG_MAGIC){
+        recover_pm_log_list_.emplace_back(i*PM_LOG_SIZE,pm_log_head);
+      }else{
+        reset(pm_log_head);
+        free_pm_log_list_.emplace_back(pm_log_head);
+      }
+
+    }
 
 }else{
 
