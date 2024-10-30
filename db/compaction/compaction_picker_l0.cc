@@ -571,7 +571,7 @@ CompactionL0* L0CompactionBuilder::PickCompaction() {
       compaction_inputs_.push_back(output_level_inputs_);
     }
     c=GetCompaction(startey,endkey);
-    mem_list_.pop_front();
+    //mem_list_.pop_front();
   }
 
   return c;

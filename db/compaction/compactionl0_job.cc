@@ -1860,6 +1860,7 @@ Status CompactionL0Job::InstallCompactionResults(
           /*column_family_options=*/nullptr, manifest_wcb);
 
    if(status.ok()){
+    compaction->column_family_data()->mem_list()->pop_front();
     auto mem = compaction->input_memtable();
     mem->FreePmtable();
     delete mem->Unref();
