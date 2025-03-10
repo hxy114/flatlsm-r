@@ -61,9 +61,9 @@ class NvmArena : public Allocator{
   static size_t OptimizeBlockSize(size_t block_size);
 
 
-  void Persist();
-  void PersistKV();
-  void PersistHead();
+//  void Persist();
+//  void PersistKV();
+//  void PersistHead();
 
  private:
 

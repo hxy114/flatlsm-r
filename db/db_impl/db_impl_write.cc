@@ -1213,7 +1213,7 @@ Status DBImpl::MakeRoomForWritePmtable(bool force) {
   Status s;
   while (true) {
     if (!force &&
-               (cfd->mem_->ApproximateNvmMemoryUsage() +5 * 1024UL<= PM_LOG_SIZE)) {
+               (cfd->mem_->ApproximateNvmMemoryUsage() +65 * 1024UL<= PM_LOG_SIZE)) {
       // There is room in current memtable
       break;
     } /*else if (pm_list_.size()>=5 ) {
