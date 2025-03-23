@@ -361,6 +361,8 @@ Status CompactionL0Outputs::AddToOutput(
     const CompactionL0FileCloseFunc& close_file_func,
     const CompactionL0LogFileOpenFunc &open_log_file_func,
     const CompactionL0LogFileCloseFunc &close_log_file_func) {
+  (void)close_log_file_func;
+  (void)open_log_file_func;
   Status s;
   bool is_range_del = c_iter.IsDeleteRangeSentinelKey();
   if (is_range_del && compaction_->bottommost_level()) {
