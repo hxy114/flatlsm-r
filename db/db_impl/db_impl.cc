@@ -2480,7 +2480,7 @@ bool DBImpl::Get(std::list<MemTable*>&list,const LookupKey& key, std::string* va
                  ReadCallback* callback , bool* is_blob_index ,
                  bool do_merge ){
 
-  for(auto iter = list.rbegin(); iter != list.rend(); iter--){
+  for(auto iter = list.rbegin(); iter != list.rend(); iter++){
 
     if((*iter)->Get(key,value,columns,timestamp,s,merge_context,
                      max_covering_tombstone_seq,read_opts,
