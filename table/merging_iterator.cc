@@ -437,17 +437,18 @@ class MergingIterator : public InternalIterator {
 
   Slice value() const override {
     assert(Valid());
-    if (cfd_) {
-      //std::cout<<"1"<<std::endl;
-      if(current_->value().size() < 200){
-        cfd_->vlog_manager_.FetchValueFromVlog(current_->value(),&finish_key_);
-        return finish_key_;
-      }else{
-        return current_->value();
-      }
-    } else {
-      return current_->value();
-    }
+    return current_->value();
+//    if (cfd_) {
+//      //std::cout<<"1"<<std::endl;
+//      if(current_->value().size() < 200){
+//        cfd_->vlog_manager_.FetchValueFromVlog(current_->value(),&finish_key_);
+//        return finish_key_;
+//      }else{
+//        return current_->value();
+//      }
+//    } else {
+//      return current_->value();
+//    }
   }
 
   bool PrepareValue() override {

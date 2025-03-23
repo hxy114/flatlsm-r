@@ -387,9 +387,9 @@ Status CompactionL0Outputs::AddToOutput(
       range_tombstone_lower_bound_.Clear();
     }
   }
-  if (HasVwriter()&&vWriter_->FileSize() >=2147483648ULL) {
-    close_log_file_func(*this);
-  }
+//  if (HasVwriter()&&vWriter_->FileSize() >=2147483648ULL) {
+//    close_log_file_func(*this);
+//  }
 
   // Open output file if necessary
   if (!HasBuilder()) {
@@ -399,12 +399,12 @@ Status CompactionL0Outputs::AddToOutput(
     }
   }
 
-  if(!HasVwriter()) {
-    s = open_log_file_func(*this);
-    if (!s.ok()) {
-      return s;
-    }
-  }
+//  if(!HasVwriter()) {
+//    s = open_log_file_func(*this);
+//    if (!s.ok()) {
+//      return s;
+//    }
+//  }
 
 
   // c_iter may emit range deletion keys, so update `last_key_for_partitioner_`
@@ -425,48 +425,49 @@ Status CompactionL0Outputs::AddToOutput(
   if (!s.ok()) {
     return s;
   }
-  const ParsedInternalKey& ikey = c_iter.ikey();
-  if(value.size()>400 && ikey.type==kTypeValue){
-    std::string rep;
-    rep.push_back(static_cast<char>(kTypeValue));
-    PutLengthPrefixedSlice(&rep, ikey.user_key);
-    PutLengthPrefixedSlice(&rep, value);
-    uint64_t addr= vWriter_->AddRecord(rep);
-    std::string address;
-    size_t size=rep.size();
-    //std::cout<<"size"<<size<<std::endl;
-    //assert(size==4116);
-    //assert(addr%4116==0);
-    PutVarint64(&address, vlog_number_);
-    PutVarint64(&address, addr);
-    PutVarint64(&address, size);
-    //std::cout<<"address.size"<<address.size()<<std::endl;
-    builder_->Add(key,address);
 
-   /* Slice addr1(address);
-    uint64_t file_numb, offset, size1;
-    if (!GetVarint64(&addr1, &file_numb)){
-      std::cout<<"1111"<<std::endl;
-    }
+//  const ParsedInternalKey& ikey = c_iter.ikey();
+//  if(value.size()>400 && ikey.type==kTypeValue){
+//    std::string rep;
+//    rep.push_back(static_cast<char>(kTypeValue));
+//    PutLengthPrefixedSlice(&rep, ikey.user_key);
+//    PutLengthPrefixedSlice(&rep, value);
+//    uint64_t addr= vWriter_->AddRecord(rep);
+//    std::string address;
+//    size_t size=rep.size();
+//    //std::cout<<"size"<<size<<std::endl;
+//    //assert(size==4116);
+//    //assert(addr%4116==0);
+//    PutVarint64(&address, vlog_number_);
+//    PutVarint64(&address, addr);
+//    PutVarint64(&address, size);
+//    //std::cout<<"address.size"<<address.size()<<std::endl;
+//    builder_->Add(key,address);
+//
+//   /* Slice addr1(address);
+//    uint64_t file_numb, offset, size1;
+//    if (!GetVarint64(&addr1, &file_numb)){
+//      std::cout<<"1111"<<std::endl;
+//    }
+//
+//    if (!GetVarint64(&addr1, &offset)) {
+//      std::cout<<"2222"<<std::endl;
+//    }
+//    if (!GetVarint64(&addr1, &size1)) {
+//      std::cout<<"3333"<<std::endl;
+//    }
+//
+//    assert(file_numb ==vlog_number_);
+//    assert(offset==addr);
+//    assert(size1==size);*/
+//  }else{
+//    //std::cout<<"4444"<<std::endl;
+//    //assert(ikey.type==kTypeValue);
+//    builder_->Add(key, value);
+//  }
 
-    if (!GetVarint64(&addr1, &offset)) {
-      std::cout<<"2222"<<std::endl;
-    }
-    if (!GetVarint64(&addr1, &size1)) {
-      std::cout<<"3333"<<std::endl;
-    }
 
-    assert(file_numb ==vlog_number_);
-    assert(offset==addr);
-    assert(size1==size);*/
-  }else{
-    //std::cout<<"4444"<<std::endl;
-    //assert(ikey.type==kTypeValue);
-    builder_->Add(key, value);
-  }
-
-
-  //builder_->Add(key, value);
+  builder_->Add(key, value);
 
   stats_.num_output_records++;
   current_output_file_size_ = builder_->EstimatedFileSize();
@@ -479,7 +480,7 @@ Status CompactionL0Outputs::AddToOutput(
     return s;
   }
 
-
+  const ParsedInternalKey& ikey = c_iter.ikey();
   if (ikey.type == kTypeValuePreferredSeqno) {
     SequenceNumber preferred_seqno = ParsePackedValueForSeqno(value);
     smallest_preferred_seqno_ =
