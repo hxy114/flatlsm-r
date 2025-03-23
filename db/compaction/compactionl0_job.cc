@@ -1251,11 +1251,12 @@ void CompactionL0Job::ProcessKeyValueCompaction(SubcompactionL0State* sub_compac
             input, cfd->user_comparator(), trim_ts_);
     input = trim_history_iter.get();
   }
-  if (start.has_value()) {
-    input->Seek(start.value());
-  } else {
-    input->SeekToFirst();
-  }
+//  if (start.has_value()) {
+//    input->Seek(start.value());
+//  } else {
+//    input->SeekToFirst();
+//  }
+  input->SeekToFirst();
   AutoThreadOperationStageUpdater stage_updater(
           ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
 
