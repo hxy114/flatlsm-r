@@ -2852,7 +2852,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   int flush_num = DefaultColumnFamilyQueueSize();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
-  while (!is_flush_pool_empty && flush_num > 3 &&
+  while (!is_flush_pool_empty && flush_num >= 3 &&
          bg_flush_scheduled_ < bg_job_limits.max_flushes) {
     /*TEST_SYNC_POINT_CALLBACK(
         "DBImpl::MaybeScheduleFlushOrCompaction:BeforeSchedule",

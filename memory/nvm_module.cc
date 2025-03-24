@@ -23,7 +23,7 @@ const std::string MAX_KEY="\xFF\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\
 
 const bool IS_FLUSH=true;
 
-const uint64_t L0_THREAD_NUMBER=3;
+const uint64_t L0_THREAD_NUMBER=5;
 
 
 PmLogHead * NvmManager::get_pm_log() {
