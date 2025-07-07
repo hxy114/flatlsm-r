@@ -5,7 +5,7 @@ A DRAM-NVM-SSD key-value store based on the LSM-tree.
 
 ## 2 Compilation and Run
 ### 2.1 Tools
-FlatLSM acesses NVM via [PMDK](https://github.com/pmem/pmdk) . To run PartitionKV, please install PMDK first.
+FlatLSM acesses NVM via [PMDK](https://github.com/pmem/pmdk) . To run FlatLSM, please install PMDK first.
 
 ### 2.2 Configuration
 
